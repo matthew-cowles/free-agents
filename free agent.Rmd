@@ -35,13 +35,16 @@ hitting_free_agents = current_free_agents %>% filter(position_type!='Pitcher') %
 
 pitching_free_agents_stats = left_join(pitching_free_agents, pitching_stats_2025, join_by('player_id'=='player_id'))
 hitting_free_agents_stats = left_join(hitting_free_agents, hitting_stats_2025, join_by('player_id'=='player_id'))
+
+pitching_free_agents_stats = left_join(pitching_free_agents_stats, statcast_pitch_leaders, join_by('player_id'=='player_id'))
+hitting_free_agents_stats = left_join(hitting_free_agents_stats, statcast_hit_leaders, join_by('player_id'=='player_id'))
 ```
 
 It also makes sense to get rid of players who didn't hit a certain number of plate appearances or pitching appearances - while these guys may still hold value, it won't really be found in this data. Then, I'm keeping the stats we really care about (hits, avg, etc), and dropping a lot of the API specific information - we don't need it anymore.
 ```{r}
-hitting_free_agents_stats = hitting_free_agents_stats %>% filter(plate_appearances >= 50) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, plate_appearances, total_bases, rbi, babip, ground_outs_to_airouts, at_bats_per_home_run)
+hitting_free_agents_stats = hitting_free_agents_stats %>% filter(plate_appearances >= 50) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, plate_appearances, total_bases, rbi, babip, ground_outs_to_airouts, at_bats_per_home_run, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff)
 
-pitching_free_agents_stats = pitching_free_agents_stats %>% filter(games_played > 15) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9)
+pitching_free_agents_stats = pitching_free_agents_stats %>% filter(games_played > 15) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era.y, xera, era_minus_xera_diff, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9, bip, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff)
 ```
 
 Now for some basic plots and data exploration. 
