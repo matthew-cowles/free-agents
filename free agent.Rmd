@@ -55,3 +55,21 @@ hr_avg = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~home_runs, 
       %{xaxis.title.text}: %{x}'))
 hr_avg
 ```
+
+k-means clusters of batting average and expected batting average
+```{r}
+hitting_free_agents_stats$avg = as.numeric(hitting_free_agents_stats$avg)
+for_k_means = hitting_free_agents_stats %>% select(avg, est_ba, est_ba_minus_ba_diff)
+
+
+fviz_nbclust(for_k_means, kmeans, method = "wss", k.max = 25)
+km = kmeans(for_k_means, 7)
+
+hitting_free_agents_stats$xba_cluster = km$cluster
+```
+
+graphing our kmean clusters and batting average
+```{r}
+ggplot(hitting_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=plate_appearances))
+
+```
