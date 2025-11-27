@@ -1,0 +1,54 @@
+---
+title: "final project"
+author: "matt c"
+date: "2025-11-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(magrittr)
+library(factoextra)
+library(baseballr)
+library(caret)
+library(plotly)
+```
+
+Our initial API calls (to the MLBStats API through the baseballr wrapper) to get the list of current free agents, and then full 2025 season stats for all players.
+```{r}
+current_free_agents = mlb_people_free_agents(season = 2025)
+hitting_stats_2025 = mlb_stats(stat_type = 'season', player_pool = 'all', stat_group = 'hitting', season = 2025)
+pitching_stats_2025 = mlb_stats(stat_type = 'season', player_pool = 'all', stat_group = 'pitching', season = 2025)
+```
+
+Querying the Statcast database with the baseballr wrapper to get advanced statistics for our players of interest.
+```{r}
+statcast_hit_leaders = statcast_leaderboards(leaderboard = "expected_statistics", year = 2025, min_pa = 50)
+statcast_pitch_leaders = statcast_leaderboards(leaderboard = "expected_statistics", year = 2025, min_pitches = 250, player_type = "pitcher")
+```
+
+Cleaning the data. The API returns a bunch of extraneous (for my purposes at least) information, so we want to get rid of that and split our free agent table into two in order to join to the stats data. We also need to filter out players who have already signed - targeting them in free agency is no longer an option!
+```{r}
+pitching_free_agents = current_free_agents %>% filter(position_type=='Pitcher') %>% filter(new_team_link=='/api/v1/teams/null') %>% select(player_id)
+hitting_free_agents = current_free_agents %>% filter(position_type!='Pitcher') %>% filter(new_team_link=='/api/v1/teams/null')  %>% select(player_id)
+
+pitching_free_agents_stats = left_join(pitching_free_agents, pitching_stats_2025, join_by('player_id'=='player_id'))
+hitting_free_agents_stats = left_join(hitting_free_agents, hitting_stats_2025, join_by('player_id'=='player_id'))
+```
+
+It also makes sense to get rid of players who didn't hit a certain number of plate appearances or pitching appearances - while these guys may still hold value, it won't really be found in this data. Then, I'm keeping the stats we really care about (hits, avg, etc), and dropping a lot of the API specific information - we don't need it anymore.
+```{r}
+hitting_free_agents_stats = hitting_free_agents_stats %>% filter(plate_appearances >= 50) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, plate_appearances, total_bases, rbi, babip, ground_outs_to_airouts, at_bats_per_home_run)
+
+pitching_free_agents_stats = pitching_free_agents_stats %>% filter(games_played > 15) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9)
+```
+
+Now for some basic plots and data exploration. 
+```{r}
+
+hr_avg = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~home_runs, y= ~as.numeric(avg), marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}'))
+hr_avg
+```
