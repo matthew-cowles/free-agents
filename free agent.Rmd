@@ -75,7 +75,7 @@ graphing our kmean clusters and batting average
 ggplot(hitting_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=plate_appearances))
 
 
-avg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~as.numeric(avg), y= ~est_ba, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), color = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+avg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~as.numeric(avg), y= ~est_ba, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
       %{xaxis.title.text}: %{x}'))
 avg_clusters
@@ -94,6 +94,11 @@ hitting_free_agents_stats$xslg_cluster = km2$cluster
 
 ```{r}
 ggplot(hitting_free_agents_stats) + geom_point(aes(slg.y, est_slg,color=as.factor(xslg_cluster), size=plate_appearances))
+
+slg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(xslg_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}'))
+slg_clusters
 ```
 
 ```{r}
@@ -106,6 +111,11 @@ hitting_free_agents_stats$diff_cluster = km3$cluster
 
 ```{r}
 ggplot(hitting_free_agents_stats) + geom_point(aes(est_ba_minus_ba_diff, est_slg_minus_slg_diff,color=as.factor(diff_cluster), size=plate_appearances))
+
+diff_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~est_ba_minus_ba_diff, y= ~est_slg_minus_slg_diff, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(diff_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
+diff_clusters
 ```
 
 
@@ -120,6 +130,11 @@ pitching_free_agents_stats$era_cluster = km4$cluster
 
 ```{r}
 ggplot(pitching_free_agents_stats) + geom_point(aes(era.y, xera,color=as.factor(era_cluster), size=as.numeric(innings_pitched)))
+
+era_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~era.y, y= ~xera, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(era_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
+era_clusters
 ```
 
 ```{r}
@@ -135,6 +150,11 @@ pitching_free_agents_stats$xba_cluster = km5$cluster
 
 ```{r}
 ggplot(pitching_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=as.numeric(innings_pitched)))
+
+pba_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~avg, y= ~est_ba, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
+pba_clusters
 ```
 
 ```{r}
@@ -149,4 +169,9 @@ pitching_free_agents_stats$xslg_cluster = km6$cluster
 
 ```{r}
 ggplot(pitching_free_agents_stats) + geom_point(aes(slg.y, est_slg,color=as.factor(xslg_cluster), size=as.numeric(innings_pitched)))
+
+pslg_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(xslg_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
+pslg_clusters
 ```
