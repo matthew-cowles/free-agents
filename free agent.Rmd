@@ -13,6 +13,8 @@ library(factoextra)
 library(baseballr)
 library(caret)
 library(plotly)
+library(ggvis)
+library(shiny)
 ```
 
 Our initial API calls (to the MLBStats API through the baseballr wrapper) to get the list of current free agents, and then full 2025 season stats for all players.
@@ -71,6 +73,12 @@ hitting_free_agents_stats$xba_cluster = km$cluster
 graphing our kmean clusters and batting average
 ```{r}
 ggplot(hitting_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=plate_appearances))
+
+
+avg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~as.numeric(avg), y= ~est_ba, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), color = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+      %{yaxis.title.text}: %{y},
+      %{xaxis.title.text}: %{x}'))
+avg_clusters
 ```
 
 ```{r}
