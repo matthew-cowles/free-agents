@@ -1,0 +1,31 @@
+---
+title: "Untitled"
+author: "matt c"
+date: "2025-12-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(xml2)
+library(rvest)
+library(tidyverse)
+library(tidytext)
+```
+
+
+
+```{r}
+salaries = readxl::read_xlsx("C:/Users/matth/Downloads/baseball salaries (1).xlsx")
+```
+
+```{r}
+salaries = salaries %>% mutate(FirstName = str_trim(str_split_fixed(player, ", ", n = 2)[, 2]), LastName = str_trim(str_split_fixed(player, ", ", n = 2)[, 1]), player_name = paste(FirstName, LastName))
+
+salaries = salaries %>% mutate(player_full_name = str_replace_all(player_name, "\\*", ""))
+```
+
+```{r}
+writexl::write_xlsx(salaries, "cleaned salaries")
+
+```
