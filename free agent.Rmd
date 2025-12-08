@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(magrittr)
 library(factoextra)
@@ -15,23 +15,41 @@ library(caret)
 library(plotly)
 library(ggvis)
 library(shiny)
+library(cluster)
 ```
 
-Our initial API calls (to the MLBStats API through the baseballr wrapper) to get the list of current free agents, and then full 2025 season stats for all players.
-```{r}
+**INTRODUCTION**
+
+This project aims to explore the 2025 MLB free agent cycle in three main ways. First, I aim to project the contract average annual value (AAV) for leading members of this year's free agent class based on previous performance and clustered comparisons to currently signed players. Second, I will pinpoint a few selected free agents who may be bargains or over pays (based on underlying performance metrics). Finally, I will look at an example case study of an MLB team, the Baltimore Orioles, in order to determine logical free agent targets for the team based on the above projections, as well as a descriptive analysis of their roster holes.
+
+```{r, include=FALSE}
 current_free_agents = mlb_people_free_agents(season = 2025)
 hitting_stats_2025 = mlb_stats(stat_type = 'season', player_pool = 'all', stat_group = 'hitting', season = 2025)
 pitching_stats_2025 = mlb_stats(stat_type = 'season', player_pool = 'all', stat_group = 'pitching', season = 2025)
 ```
 
-Querying the Statcast database with the baseballr wrapper to get advanced statistics for our players of interest.
-```{r}
-statcast_hit_leaders = statcast_leaderboards(leaderboard = "expected_statistics", year = 2025, min_pa = 50)
+**DATA COLLECTION**
+
+In order to perform this analysis, a wide variety of data is required. I obtained the list of all current MLB free agents and counting stats for all MLB players from queries to the MLBStats API through the baseballr wrapper. I then queried MLB's Statcast database (again through the baseballr wrapper) in order to acquire the advanced statistics for all MLB players. Finally, I used a public data source known as Cot's Contracts to download salary and service time data for all 30 MLB teams and their 40 man rosters. Using dplyr, I cleaned and joined the data, creating two dataframes: one with all active MLB players, their stats, and contract values, and a second with the current free agent class and their statistics. Once the data was joined, some additional cleaning was required. I dropped players that did not hit a certain threshold of at bats or pitches thrown; MLB has a "qualified player" metric, but I found that their thresholds for leaderboards were too high, and filtered out many players that certainly have free agent value. I ended up settling on 100 plate appearances and 250 pitches thrown as my metrics. I also filtered out members of this year's free agent class that had already signed with a team - while they will be of interest in part two, they are not useful for our clustering based on their new contracts.
+
+```{r, include=FALSE}
+statcast_hit_leaders = statcast_leaderboards(leaderboard = "expected_statistics", year = 2025, min_pa = 100)
 statcast_pitch_leaders = statcast_leaderboards(leaderboard = "expected_statistics", year = 2025, min_pitches = 250, player_type = "pitcher")
 ```
 
-Cleaning the data. The API returns a bunch of extraneous (for my purposes at least) information, so we want to get rid of that and split our free agent table into two in order to join to the stats data. We also need to filter out players who have already signed - targeting them in free agency is no longer an option!
-```{r}
+```{r, include=FALSE}
+salaries = readxl::read_xlsx("C:/Users/matth/OneDrive/Documents/free-agents/cleaned salaries")
+salaries = salaries %>% select(player_full_name, service_time, salary)
+
+full_hitting_stats = left_join(hitting_stats_2025, salaries, join_by('player_full_name'=='player_full_name')) %>% drop_na(salary)
+
+full_pitching_stats = left_join(pitching_stats_2025, salaries, join_by('player_full_name'=='player_full_name')) %>% drop_na(salary)
+
+full_pitching_stats = left_join(full_pitching_stats, statcast_pitch_leaders, join_by('player_id'=='player_id'))
+full_hitting_stats = left_join(full_hitting_stats, statcast_hit_leaders, join_by('player_id'=='player_id'))
+```
+
+```{r, include=FALSE}
 pitching_free_agents = current_free_agents %>% filter(position_type=='Pitcher') %>% filter(new_team_link=='/api/v1/teams/null') %>% select(player_id)
 hitting_free_agents = current_free_agents %>% filter(position_type!='Pitcher') %>% filter(new_team_link=='/api/v1/teams/null')  %>% select(player_id)
 
@@ -42,15 +60,23 @@ pitching_free_agents_stats = left_join(pitching_free_agents_stats, statcast_pitc
 hitting_free_agents_stats = left_join(hitting_free_agents_stats, statcast_hit_leaders, join_by('player_id'=='player_id'))
 ```
 
-It also makes sense to get rid of players who didn't hit a certain number of plate appearances or pitching appearances - while these guys may still hold value, it won't really be found in this data. Then, I'm keeping the stats we really care about (hits, avg, etc), and dropping a lot of the API specific information - we don't need it anymore.
-```{r}
+```{r, include=FALSE}
 hitting_free_agents_stats = hitting_free_agents_stats %>% filter(plate_appearances >= 50) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, plate_appearances, total_bases, rbi, babip, ground_outs_to_airouts, at_bats_per_home_run, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff) %>% drop_na()
 
-pitching_free_agents_stats = pitching_free_agents_stats %>% filter(games_played > 15) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era.y, xera, era_minus_xera_diff, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9, bip, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff) %>% drop_na()
+pitching_free_agents_stats = pitching_free_agents_stats %>% filter(games_played > 5) %>% select(player_id, player_full_name, position_abbreviation, age, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era.y, xera, era_minus_xera_diff, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9, bip, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff) %>% drop_na()
+
+full_hitting_stats = full_hitting_stats %>% filter(plate_appearances >= 50) %>% select(player_id, player_full_name, team_name, position_abbreviation, age, salary, service_time, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, plate_appearances, total_bases, rbi, babip, ground_outs_to_airouts, at_bats_per_home_run, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff) %>% drop_na()
+
+full_pitching_stats = full_pitching_stats %>% filter(games_played > 5) %>% select(player_id, player_full_name, team_name, position_abbreviation, age, salary, games_started, service_time, ground_outs, air_outs, runs, doubles, triples, home_runs, strike_outs, base_on_balls, intentional_walks, hits, avg, at_bats, obp, slg.y, ops, stolen_bases, stolen_base_percentage, ground_into_double_play, number_of_pitches, era.y, xera, era_minus_xera_diff, innings_pitched, wins, losses, earned_runs, whip, saves, save_opportunities, holds, strikes, strike_percentage, strikeout_walk_ratio, strikeouts_per9inn, wild_pitches, total_bases, pitches_per_inning, walks_per9inn, hits_per9inn, home_runs_per9, bip, est_ba, est_ba_minus_ba_diff, est_slg, est_slg_minus_slg_diff, woba, est_woba, est_woba_minus_woba_diff) %>% drop_na()
 ```
 
-Now for some basic plots and data exploration. 
-```{r}
+**ANALYSIS: HITTERS**
+
+This analysis is based on k-means clustering. In order to cluster players, I used a wide variety of statistical inputs. They are as follows: actual batting average, slugging, on base pluse slugging (OPS), and weighted on base average (WOBA), as well as estimated values for all of these factors. I also included the difference between the player's actual values and estimated values in order to capture over and underperformance in the clusters. I settled on 8 clusters for a few reasons. First, 8 was a reasonable choice based on the elbow method - it was a little bit after the curve, but still defensible. Second, I ran the k-means with several other choices, and going lower did not make enough of the differentiation clear. Finally, as we are not clustering on salary, I wanted there to be enough different clusters that salary would hopefully have some differentiation. This is less of a statistical method concern and more of a research question concern, but still felt important to consider.
+
+The chart below displays two of the components of the clustering analysis plotted: estimated slugging vs actual slugging percentage.
+
+```{r, include=FALSE}
 
 hr_avg = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~home_runs, y= ~as.numeric(avg), marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
@@ -58,120 +84,153 @@ hr_avg = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~home_runs, 
 hr_avg
 ```
 
-k-means clusters of batting average and expected batting average
-```{r}
-hitting_free_agents_stats$avg = as.numeric(hitting_free_agents_stats$avg)
-for_k_means = hitting_free_agents_stats %>% select(avg, est_ba, est_ba_minus_ba_diff)
+```{r, include=FALSE}
+full_hitting_stats$avg = as.numeric(full_hitting_stats$avg)
+for_k_means_counting = full_hitting_stats %>% select(avg, slg.y, woba, ops)
+for_k_means_estimated = full_hitting_stats %>% select(est_ba, est_slg, est_woba)
+for_k_means_full = full_hitting_stats %>% select(est_ba, est_slg, est_woba, babip, avg, slg.y, woba, ops, est_ba_minus_ba_diff, est_slg_minus_slg_diff, est_woba_minus_woba_diff)
 
+fviz_nbclust(for_k_means_counting, kmeans, method = "wss", k.max = 25)
+fviz_nbclust(for_k_means_estimated, kmeans, method = "wss", k.max = 25)
+fviz_nbclust(for_k_means_full, kmeans, method = "wss", k.max = 25)
+km = kmeans(for_k_means_counting, 6)
+km2 = kmeans(for_k_means_estimated, 6)
+km3 = kmeans(for_k_means_full, 8)
+full_hitting_stats$counting_cluster = km$cluster
+full_hitting_stats$estimated_cluster = km2$cluster
+full_hitting_stats$full_cluster = km3$cluster
 
-fviz_nbclust(for_k_means, kmeans, method = "wss", k.max = 25)
-km = kmeans(for_k_means, 7)
-
-hitting_free_agents_stats$xba_cluster = km$cluster
 ```
 
-graphing our kmean clusters and batting average
-```{r}
-ggplot(hitting_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=plate_appearances))
-
-
-avg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~as.numeric(avg), y= ~est_ba, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+```{r, include=FALSE}
+count_clusters = full_hitting_stats %>% plot_ly(type = 'scatter', x= ~as.numeric(ops), y= ~woba, marker = list(color=~counting_cluster, size = ~plate_appearances, sizeref = 5, sizemode = 'area', opacity=.9,
+            colorscale='Jet',
+            colorbar=list(
+                title='Cluster'
+            )), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
       %{xaxis.title.text}: %{x}'))
-avg_clusters
-```
 
-```{r}
-for_k_means_2 = hitting_free_agents_stats %>% select(slg.y, est_slg, est_slg_minus_slg_diff)
-
-
-fviz_nbclust(for_k_means_2, kmeans, method = "wss", k.max = 25)
-km2 = kmeans(for_k_means_2, 9)
-
-hitting_free_agents_stats$xslg_cluster = km2$cluster
-
-```
-
-```{r}
-ggplot(hitting_free_agents_stats) + geom_point(aes(slg.y, est_slg,color=as.factor(xslg_cluster), size=plate_appearances))
-
-slg_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(xslg_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+est_clusters = full_hitting_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(color=~estimated_cluster, size = ~plate_appearances, sizeref = 5, sizemode = 'area', opacity=.9,
+            colorscale='Jet',
+            colorbar=list(
+                title='Cluster'
+            )), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
       %{xaxis.title.text}: %{x}'))
-slg_clusters
-```
 
-```{r}
-for_k_means_3 = hitting_free_agents_stats %>% select(est_ba_minus_ba_diff, est_slg_minus_slg_diff, est_woba_minus_woba_diff)
-
-fviz_nbclust(for_k_means_3, kmeans, method = "wss", k.max = 25)
-km3 = kmeans(for_k_means_3, 5)
-hitting_free_agents_stats$diff_cluster = km3$cluster
-```
-
-```{r}
-ggplot(hitting_free_agents_stats) + geom_point(aes(est_ba_minus_ba_diff, est_slg_minus_slg_diff,color=as.factor(diff_cluster), size=plate_appearances))
-
-diff_clusters = hitting_free_agents_stats %>% plot_ly(type = 'scatter', x= ~est_ba_minus_ba_diff, y= ~est_slg_minus_slg_diff, marker = list(size = ~plate_appearances, sizeref = 5, sizemode = 'area'), fillcolor = ~as.factor(diff_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+full_clusters = full_hitting_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(color=~full_cluster, size = ~plate_appearances, sizeref = 5, sizemode = 'area', opacity=.9,
+            colorscale='Jet',
+            colorbar=list(
+                title='Cluster'
+            )), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
-      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
-diff_clusters
+      %{xaxis.title.text}: %{x}'))
 ```
 
+```{r, echo=FALSE}
+full_clusters
+```
 
-Now for pitchers!
-```{r}
-for_k_means_4 = pitching_free_agents_stats %>% select(era.y, xera, era_minus_xera_diff) %>% drop_na()
+There are some pretty clear clusters of players. Cluster 7, in the top right, contains the names you would largely expect: Aaron Judge, Shohei Ohtani, Juan Soto, and Cal Raleigh are all members of this cluster. Cluster 8 contains the best players from the tier below: Max Muncy, Matt Olson, and Bryce Harper are here. The most potentially intriguing players for our analysis, however, lie in cluster 3. These are players who, for whatever reason, deeply underperformed their expected numbers; Salvador Perez, for example, had an expected slugging nearly 90 points better than his actual numbers. If any of our free agents lie in this cluster, they could represent extra value.
+
+```{r, echo=FALSE}
+full_hitting_stats %>% group_by(full_cluster) %>% summarise(mean(salary))
+```
+
+The average salaries of each cluster are presented here. At first glance, this makes sense. Our cluster 6, the best players in the league, command much higher salaries. But, the number is lower than we would expect given that Juan Soto, for example, commands a salary of nearly 62 million dollars. This is due to baseball's salary structure, which is based on a complex formula of draft slot and arbitration until a player accrues a certain number of seasons played (6) and are thus able to hit free agency. When we filter out players still on rookie scale deals, the average salaries per cluster are as follows.
+
+```{r, echo=FALSE}
+full_hitting_stats %>% filter(service_time > 6) %>% group_by(full_cluster) %>% summarise(mean(salary))
+```
+
+These numbers are much higher, and much more likely to be reflective of what a free agent in each cluster could be expected to actually receive.
+
+**CASE STUDIES: PETE ALONSO AND JOSH BELL**
+
+Pete Alonso, previously of the Mets, is a member of cluster 6. Both his counting stats (0.272 average, 38 home runs, and 126 RBI) and estimated stats (0.560 estimated slugging, 0.278 estimated batting average) are very strong, and, as well, are indicative of continued strong performance. According to our average salary model, this would put him in line to command at least 28 million dollars in average annual value. Current expert estimates from sports reporting websites and insiders such as the Athletic, Baseball America, and ESPN place contract estimates for him between 5 years/150 million and 6 years/182 million, which would give him an average annual value between 30 and 32 million, right in line with what other players in his cluster are being paid, and would likely make that deal a fair contract for both team and player.
+
+Josh Bell, who played last season with the Nationals, is a member of cluster 8. His counting stats are solely okay (0.237 average, 22 home runs), but his estimated stats are much better (0.261 estimated batting average, 0.475 estimated slugging) and would indicate a bounce back season could be in order. The average player in his cluster is paid around 14 million dollars per season. Contract projections, though, are hovering around the 2 years/16 million dollar range, or 8 million dollars per season. Given he performs like a 14 million dollar player, and his expected statistics are quite positive, the projected contract could be quite attractive for a smaller market team looking for a bargain!
+
+**ANALYSIS: PITCHERS**
+
+I also performed a similar analysis for pitchers, clustering on earned run average (ERA), walks and hits per inning pitched (WHIP), batting average against, slugging percentage against, and strike percentage, as well as the estimated values of those statistics. The same considerations went into selection of cluster numbers, leading to 6 as the number.
+
+A plot of ERA versus expected ERA is shown below.
+
+```{r, include=FALSE}
+for_k_means_4 = full_pitching_stats %>% select(era.y, xera, est_ba, est_slg, era_minus_xera_diff, whip, avg, slg.y, strike_percentage) %>% drop_na()
 
 fviz_nbclust(for_k_means_4, kmeans, method = "wss", k.max = 25)
-km4 = kmeans(for_k_means_4, 8)
-pitching_free_agents_stats$era_cluster = km4$cluster
+km4 = kmeans(for_k_means_4, 6)
+full_pitching_stats$era_cluster = km4$cluster
+
+full_pitching_stats %>% group_by(era_cluster) %>% summarise(mean(salary))
+
 ```
 
-```{r}
-ggplot(pitching_free_agents_stats) + geom_point(aes(era.y, xera,color=as.factor(era_cluster), size=as.numeric(innings_pitched)))
-
-era_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~era.y, y= ~xera, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(era_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+```{r, include=FALSE, include=FALSE}
+era_clusters = full_pitching_stats %>% plot_ly(type = 'scatter', x= ~era.y, y= ~xera, marker = list(color = ~era_cluster, size = ~innings_pitched, sizeref = 2, sizemode = 'area', opacity=.9, colorscale='Jet', colorbar=list(title='Cluster')), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
-      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed")) %>% layout(xaxis = list(title = '<b> Actual ERA <b>'), 
+         yaxis = list(title = '<b> Expected ERA <b>'),legend = list(title=list(text='Cluster')))
+```
+
+```{r, echo=FALSE}
 era_clusters
 ```
 
-```{r}
-pitching_free_agents_stats$avg = as.numeric(pitching_free_agents_stats$avg)
-for_k_means_5 = pitching_free_agents_stats %>% select(avg, est_ba, est_ba_minus_ba_diff)
+There are 6 fairly distinct groups presented here. Once again, those in the top right are the big name star pitchers, such as Paul Skenes and Tarik Skubal, the 2025 Cy Young winners. A cluster of interest may be cluster 6, who universally underperformed their expected numbers, and thus could be considered as candidates for a bounceback campaign. Cluster 2, are the opposite: overperformers who may be candidates for regression. If any of our free agents fall in that cluster, it may be prudent to avoid them.
 
-
-fviz_nbclust(for_k_means_5, kmeans, method = "wss", k.max = 25)
-km5 = kmeans(for_k_means_5, 10)
-
-pitching_free_agents_stats$xba_cluster = km5$cluster
+```{r, echo=FALSE}
+full_pitching_stats %>% filter(service_time > 6) %>% group_by(era_cluster) %>% summarise(mean(salary))
 ```
 
-```{r}
-ggplot(pitching_free_agents_stats) + geom_point(aes(avg, est_ba,color=as.factor(xba_cluster), size=as.numeric(innings_pitched)))
+The above table shows the average salary per cluster after removing those on rookie scale contracts. Interestingly, pitcher salaries are much flatter across the board. This is probably due to the difference in contract between starters and relievers - relievers are far more replaceable than elite starters. If we drill it down farther and only show the salary of starters in each cluster, we see the following.
 
-pba_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~avg, y= ~est_ba, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(xba_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+```{r, echo=FALSE}
+full_pitching_stats %>% filter(service_time > 6) %>% filter (games_started> 10) %>% group_by(era_cluster) %>% summarise(mean(salary))
+```
+
+This makes more sense - our elite pitchers in cluster 3 now command a much higher average salary than their peers.
+
+**CASE STUDY: DYLAN CEASE**
+
+Dylan Cease was a coveted free agent starting pitcher on this year's market, and recently signed a 7 year, 210 million dollar contract with the Toronto Blue Jays. His counting stats this year were okay to bad (4.55 ERA, 21 home runs allowed), but his expected numbers were much better (3.46 expected ERA, 0.216 expected batting average against), putting him in cluster 6. However, our average pitcher in cluster 6 is only making around 17 million per year. The Blue Jays are paying him like he's a member of cluster 3. Why the difference? There's two big reasons. First, as discussed, there are far less elite starters than any other position in baseball, so teams often pay a premium for that position. Second, and perhaps more importantly, Cease in 2022 and 2024 *was* a cluster 3 pitcher, and taking the risk that he may be again would be worth it if the Jays are right. Only time will tell if they are.
+
+**THE BALTIMORE ORIOLES**
+
+Expected to be contenders last season, the Orioles cratered to a last place finish. Where could they improve, and who could be a reasonable target?
+
+```{r, include=FALSE}
+orioles_hitters = full_hitting_stats %>% filter(team_name == 'Baltimore Orioles')
+orioles_pitchers = full_pitching_stats %>% filter(team_name == 'Baltimore Orioles')
+os_clusters = orioles_hitters %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(color=~full_cluster, size = ~plate_appearances, sizeref = 5, sizemode = 'area', opacity=.9,
+            colorscale='Jet',
+            colorbar=list(
+                title='Cluster'
+            )), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
-      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
-pba_clusters
+      %{xaxis.title.text}: %{x}'))
 ```
 
-```{r}
-for_k_means_6 = pitching_free_agents_stats %>% select(slg.y, est_slg, est_slg_minus_slg_diff)
-
-
-fviz_nbclust(for_k_means_6, kmeans, method = "wss", k.max = 25)
-km6 = kmeans(for_k_means_6, 8)
-
-pitching_free_agents_stats$xslg_cluster = km6$cluster
+```{r, echo=FALSE}
+os_clusters
 ```
 
-```{r}
-ggplot(pitching_free_agents_stats) + geom_point(aes(slg.y, est_slg,color=as.factor(xslg_cluster), size=as.numeric(innings_pitched)))
+One of the problems for the Orioles was the lack of truly elite bats. They have no players in the "best" cluster, and only two in the other "very good" cluster. Luckily, there are plenty of candidates for both internal improvement (should Tyler O'Neill and Adley Rutschman stay healthy, bounceback seasons may be imminent) and external improvement (the aforementioned Pete Alonso would be a world of improvement over Ryan Mountcastle).
 
-pslg_clusters = pitching_free_agents_stats %>% plot_ly(type = 'scatter', x= ~slg.y, y= ~est_slg, marker = list(size = ~innings_pitched, sizeref = 2, sizemode = 'area'), fillcolor = ~as.factor(xslg_cluster), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
+The other is a lack of starting pitching.
+
+```{r, include=FALSE, include=FALSE}
+os_era_clusters = orioles_pitchers %>% plot_ly(type = 'scatter', x= ~era.y, y= ~xera, marker = list(color = ~era_cluster, size = ~innings_pitched, sizeref = 2, sizemode = 'area', opacity=.9, colorscale='Jet', colorbar=list(title='Cluster')), text = ~player_full_name, hovertemplate = paste('<b>%{text}</b>
       %{yaxis.title.text}: %{y},
-      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed"))
-pslg_clusters
+      %{xaxis.title.text}: %{x}')) %>% layout(yaxis = list(autorange = "reversed"))%>% layout(xaxis = list(autorange = "reversed")) %>% layout(xaxis = list(title = '<b> Actual ERA <b>'), 
+         yaxis = list(title = '<b> Expected ERA <b>'),legend = list(title=list(text='Cluster')))
 ```
+
+```{r, echo=FALSE}
+os_era_clusters
+```
+
+Two of the 5 Orioles starters last season are in one of the lowest performing clusters, and only 1 - Trevor Rogers - was in an elite cluster. It's harder to find signs of internal improvement in these numbers, so the Orioles best hope at turning around the starter situation may be external, if they're willing to spend the money.
