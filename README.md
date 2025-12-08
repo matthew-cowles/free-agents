@@ -1,0 +1,1 @@
+In order to run the full 'free agent.rmd' file, you will likely need to run 'salary import.rmd' first. make sure that the 'baseball salaries.xslx' file is downloaded and that the file path is changed, then once the file is cleaned, change the 'salaries' table in 'free agent.rmd' to where the cleaned salaries file was output!
